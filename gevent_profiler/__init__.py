@@ -15,6 +15,8 @@ _curr_states = {}
 _summary_output_file = sys.stdout
 _trace_output_file = sys.stdout
 
+_trace_output_enabled = False
+
 _time_blocking = False
 
 _attach_expiration = None
@@ -60,7 +62,7 @@ def _globaltrace(frame, event, arg):
 	if filename:
 		modulename = _modname(filename)
 		if modulename is not None:
-			_trace_output_file.write("[%s] call: %s: %s\n" % (gl, modulename, code.co_name))
+			_print_trace("[%s] call: %s: %s\n" % (gl, modulename, code.co_name))
 	state = _State()
 	_curr_states[gl].calls.append(state)
 	state.parent = _curr_states[gl]
@@ -94,7 +96,7 @@ def _localtrace(state, frame, event, arg):
 		modulename = _modname(filename)
 	if event == 'return':
 		if modulename is not None:
-			_trace_output_file.write("[%s] return: %s: %s: %s\n" % (gl, modulename, code.co_name, code.co_firstlineno))
+			_print_trace("[%s] return: %s: %s: %s\n" % (gl, modulename, code.co_name, code.co_firstlineno))
 		if state.start_time is not None:
 			state.elapsed += time.time() - state.start_time
 		assert _curr_states[gl].parent is not None
@@ -102,6 +104,11 @@ def _localtrace(state, frame, event, arg):
 		return None
 	
 	return state.localtracefunc
+
+def _print_trace(msg):
+	if not _trace_output_enabled:
+		return
+	_trace_output_file.write(msg)
 
 def _stop_timing(gl):
 
@@ -133,6 +140,32 @@ def _start_timing(gl):
 	curr_state = _curr_states[gl]
 	_start_timing_r(curr_state)
 
+class _CallSummary:
+	def __init__(self, name):
+		self.name = name
+		self.cumulative = 0.0
+		self.count = 0
+		self.own_cumulative = 0.0
+		self.children_cumulative = 0.0
+
+def _sum_calls(state, call_summaries):
+	key = "%s.%s" % (state.modulename, state.co_name)
+	if key in call_summaries:
+		call = call_summaries[key]
+	else:
+		call = _CallSummary(key)
+		call_summaries[key] = call
+
+	call.count += 1
+
+	child_exec_time = 0.0
+	for child in state.calls:
+		child_exec_time += _sum_calls(child, call_summaries)
+	
+	call.cumulative += state.elapsed
+	call.own_cumulative += state.elapsed - child_exec_time
+	call.children_cumulative += child_exec_time
+	return state.elapsed
 
 def _print_state(state, depth=0):
 	_summary_output_file.write("%s %s.%s %f\n" % ("."*depth, state.modulename, state.co_name, state.elapsed))
@@ -140,6 +173,23 @@ def _print_state(state, depth=0):
 		_print_state(call, depth+2)
 
 def _print_output():
+	call_summaries = {}
+	for gl in _states.keys():
+		_sum_calls(_states[gl], call_summaries)
+	
+	call_list = []
+	for name in call_summaries:
+		cs = call_summaries[name]
+		call_list.append( (cs.cumulative, cs) )
+	call_list.sort(reverse=True)
+
+	print "%40s %5s %12s %12s %12s" % (
+			"Call Name","Count","Cumulative","Own Cumul","Child Cumul")
+	print "="*86
+	for _,c in call_list:
+		print "%40s %5d %12f %12f %12f" % (
+				c.name, c.count, c.cumulative, c.own_cumulative, c.children_cumulative)
+
 	for gl in _states.keys():
 		_summary_output_file.write("%s\n" % gl)
 		_print_state(_states[gl])
@@ -202,6 +252,10 @@ def set_trace_output(f):
 	"""
 	global _trace_output_file
 	_trace_output_file = open(f, 'w')
+
+def enable_trace_output(enabled=True):
+	global _trace_output_enabled
+	_trace_output_enabled = enabled
 
 def time_blocking(enabled=True):
 	"""
