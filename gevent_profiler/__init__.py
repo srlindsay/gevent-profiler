@@ -12,15 +12,17 @@ _curr_gl = None
 _states = {}
 _curr_states = {}
 
+_stats_output_file = sys.stdout
 _summary_output_file = sys.stdout
 _trace_output_file = sys.stdout
 
-_trace_output_enabled = False
-
+_print_percentages = False
 _time_blocking = False
 
 _attach_expiration = None
 _attach_duration = 60
+
+_trace_began_at = None
 
 class _State:
 	def __init__(self):
@@ -105,11 +107,6 @@ def _localtrace(state, frame, event, arg):
 	
 	return state.localtracefunc
 
-def _print_trace(msg):
-	if not _trace_output_enabled:
-		return
-	_trace_output_file.write(msg)
-
 def _stop_timing(gl):
 
 	def _stop_timing_r(state):
@@ -167,12 +164,36 @@ def _sum_calls(state, call_summaries):
 	call.children_cumulative += child_exec_time
 	return state.elapsed
 
+def _maybe_open_file(f):
+	if f is None:
+		return None
+	else:
+		return open(f, 'w')
+
+def _maybe_write(output_file, message):
+	if output_file is not None:
+		output_file.write(message)
+
+def _maybe_flush(f):
+	if f is not None:
+		f.flush()
+
+def _print_trace(msg):
+	_maybe_write(_trace_output_file, msg)
+
+def _print_stats_header(header):
+	_maybe_write(_stats_output_file, "%40s %5s %12s %12s %12s\n" % header)
+	_maybe_write(_stats_output_file, "="*86 + "\n")
+
+def _print_stats(stats):
+	_maybe_write(_stats_output_file, "%40s %5d %12f %12f %12f\n" % stats)
+
 def _print_state(state, depth=0):
-	_summary_output_file.write("%s %s.%s %f\n" % ("."*depth, state.modulename, state.co_name, state.elapsed))
+	_maybe_write(_summary_output_file, "%s %s.%s %f\n" % ("."*depth, state.modulename, state.co_name, state.elapsed))
 	for call in state.calls:
 		_print_state(call, depth+2)
 
-def _print_output():
+def _print_output(duration):
 	call_summaries = {}
 	for gl in _states.keys():
 		_sum_calls(_states[gl], call_summaries)
@@ -183,18 +204,26 @@ def _print_output():
 		call_list.append( (cs.cumulative, cs) )
 	call_list.sort(reverse=True)
 
-	print "%40s %5s %12s %12s %12s" % (
-			"Call Name","Count","Cumulative","Own Cumul","Child Cumul")
-	print "="*86
+	if _print_percentages:
+		_print_stats_header(("Call Name","Count","Cumulative%","Own Cumul%","Child Cumul%"))
+	else:
+		_print_stats_header(("Call Name","Count","Cumulative","Own Cumul","Child Cumul"))
 	for _,c in call_list:
-		print "%40s %5d %12f %12f %12f" % (
-				c.name, c.count, c.cumulative, c.own_cumulative, c.children_cumulative)
+		cumulative = c.cumulative
+		own_cumulative = c.own_cumulative
+		children_cumulative = c.children_cumulative
+		if _print_percentages:
+			cumulative = cumulative * 100 / duration
+			own_cumulative = own_cumulative * 100 / duration
+			children_cumulative = children_cumulative * 100 / duration
+		_print_stats((c.name, c.count, cumulative, own_cumulative, children_cumulative))
+	_maybe_flush(_stats_output_file)
 
 	for gl in _states.keys():
-		_summary_output_file.write("%s\n" % gl)
+		_maybe_write(_summary_output_file, "%s\n" % gl)
 		_print_state(_states[gl])
-		_summary_output_file.write("\n")
-	_summary_output_file.flush()
+		_maybe_write(_summary_output_file, "\n")
+	_maybe_flush(_summary_output_file)
 
 def attach():
 	"""
@@ -202,9 +231,12 @@ def attach():
 	"""
 	global _attach_expiration
 	global _attach_duration
+	global _trace_began_at
 	if _attach_expiration is not None:
 		return
-	_attach_expiration = time.time() + _attach_duration
+	now = time.time()
+	_attach_expiration = now + _attach_duration
+	_trace_began_at = now
 	sys.settrace(_globaltrace)
 
 def detach():
@@ -216,15 +248,18 @@ def detach():
 	global _states
 	global _curr_states
 	global _attach_expiration
+	global _trace_began_at
 
+	duration = time.time() - _trace_began_at
 	_attach_expiration = None
 	sys.settrace(None)
-	_trace_output_file.flush()
-	_print_output()
+	_maybe_flush(_trace_output_file)
+	_print_output(duration)
 	_gls = {}
 	_curr_gl = None
 	_states = {}
 	_curr_states = {}
+	_trace_began_at = None
 	curr_state = None
 
 def profile(func, args=[], kwargs={}):
@@ -234,28 +269,40 @@ def profile(func, args=[], kwargs={}):
 	results are printed.
 	"""
 	sys.settrace(_globaltrace)
+	trace_began_at = time.time()
 	func(*args, **kwargs)
 	sys.settrace(None)
-	_trace_output_file.flush()
-	_print_output()
+	_maybe_flush(_trace_output_file)
+	_print_output(time.time() - trace_began_at)
+
+def set_stats_output(f):
+	"""
+	Takes a filename and will write the call timing statistics there
+	"""
+	global _stats_output_file
+	_stats_output_file = _maybe_open_file(f)
 
 def set_summary_output(f):
 	"""
 	Takes a filename and will write the execution summary there
 	"""
 	global _summary_output_file
-	_summary_output_file = open(f, 'w')
+	_summary_output_file = _maybe_open_file(f)
 
 def set_trace_output(f):
 	"""
 	Takes a filename and writes the execution trace information there
 	"""
 	global _trace_output_file
-	_trace_output_file = open(f, 'w')
+	_trace_output_file = _maybe_open_file(f)
 
-def enable_trace_output(enabled=True):
-	global _trace_output_enabled
-	_trace_output_enabled = enabled
+def print_percentages(enabled=False):
+	"""
+	Pass True if you want statistics to be output as percentages of total
+	run time instead of absolute measurements.
+	"""
+	global _print_percentages
+	_print_percentages = enabled
 
 def time_blocking(enabled=True):
 	"""
@@ -263,6 +310,7 @@ def time_blocking(enabled=True):
 	totals for each function.  The default setting for this is False, which
 	is probably what you're looking for in most cases.
 	"""
+	global _time_blocking
 	_time_blocking = enabled
 
 def _sighandler(signum, frame):
