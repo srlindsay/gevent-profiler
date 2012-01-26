@@ -296,7 +296,7 @@ def set_trace_output(f):
 	global _trace_output_file
 	_trace_output_file = _maybe_open_file(f)
 
-def print_percentages(enabled=False):
+def print_percentages(enabled=True):
 	"""
 	Pass True if you want statistics to be output as percentages of total
 	run time instead of absolute measurements.
@@ -333,20 +333,30 @@ def attach_on_signal(signum=signal.SIGUSR1, duration=60):
 if __name__ == "__main__":
 	from optparse import OptionParser
 	parser = OptionParser()
+	parser.add_option("-a", "--stats", dest="stats",
+			help="write the stats to a file",
+			metavar="STATS_FILE")
 	parser.add_option("-s", "--summary", dest="summary",
 			help="write the summary to a file",
 			metavar="SUMMARY_FILE")
 	parser.add_option("-t", "--trace", dest="trace",
 			help="write the trace to a file",
 			metavar="TRACE_FILE")
+	parser.add_option("-p", "--percentages", dest="percentages",
+			action='store_false',
+			help="print stats as percentages of total runtime")
 	parser.add_option("-b", "--blocking", dest="blocking",
 			action='store_false',
 			help="count blocked time toward execution totals")
 	(options, args) = parser.parse_args()
+	if options.stats is not None:
+		set_stats_output(options.stats)
 	if options.summary is not None:
 		set_summary_output(options.summary)
 	if options.trace is not None:
 		set_trace_output(options.trace)
+	if options.percentages is not None:
+		print_percentages()
 	if options.blocking is not None:
 		time_blocking()
 	if len(args) < 1:
@@ -354,9 +364,8 @@ if __name__ == "__main__":
 		sys.exit(1)
 	file = args[0]
 
+	trace_began_at = time.time()
 	sys.settrace(_globaltrace)
-	f = open(file, 'r')
-	exec f
-	
+	execfile(file)
 	sys.settrace(None)
-	_print_output()
+	_print_output(time.time() - trace_began_at)
