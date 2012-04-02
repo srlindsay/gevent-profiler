@@ -6,6 +6,7 @@ import sys
 import time
 import gevent
 import signal
+import inspect
 
 _gls = {}
 _curr_gl = None
@@ -28,11 +29,26 @@ class _State:
 	def __init__(self):
 		self.modulename = None
 		self.co_name = None
+		self.filename = None
+		self.line_no = None
 		self.start_time = None
+		self.full_class = None
 		self.elapsed = 0.0
 		self.depth = 0
 		self.calls = []
 		self.parent = None
+	def __str__(self):
+		first = self.modulename
+		if self.full_class:
+			true_class = self.full_class
+			# use inspect to find the method's true class
+			for cls in inspect.getmro(self.full_class):
+				if self.co_name in cls.__dict__:
+					fnc = cls.__dict__[self.co_name]
+					if hasattr(fnc, "func_code") and fnc.func_code.co_filename == self.filename and fnc.func_code.co_firstlineno == self.line_no:
+						true_class = cls
+			first = "%s.%s" % (true_class.__module__, true_class.__name__)
+		return "%s.%s" % (first, self.co_name)
 
 def _modname(path):
     """Return a plausible module name for the path."""
@@ -71,8 +87,12 @@ def _globaltrace(frame, event, arg):
 	_curr_states[gl] = state
 
 	state.modulename = modulename
+	state.filename = filename
+	state.line_no = code.co_firstlineno
 	state.co_name = code.co_name
 	state.start_time = time.time()
+	if 'self' in frame.f_locals:
+		state.full_class = type(frame.f_locals['self'])
 
 	tracefunc = _getlocaltrace(state)
 	state.localtracefunc = tracefunc
@@ -146,7 +166,7 @@ class _CallSummary:
 		self.children_cumulative = 0.0
 
 def _sum_calls(state, call_summaries):
-	key = "%s.%s" % (state.modulename, state.co_name)
+	key = str(state)
 	if key in call_summaries:
 		call = call_summaries[key]
 	else:
@@ -189,7 +209,7 @@ def _print_stats(stats):
 	_maybe_write(_stats_output_file, "%40s %5d %12f %12f %12f\n" % stats)
 
 def _print_state(state, depth=0):
-	_maybe_write(_summary_output_file, "%s %s.%s %f\n" % ("."*depth, state.modulename, state.co_name, state.elapsed))
+	_maybe_write(_summary_output_file, "%s %s %f\n" % ("."*depth, str(state), state.elapsed))
 	for call in state.calls:
 		_print_state(call, depth+2)
 
@@ -197,26 +217,46 @@ def _print_output(duration):
 	call_summaries = {}
 	for gl in _states.keys():
 		_sum_calls(_states[gl], call_summaries)
-	
+
 	call_list = []
 	for name in call_summaries:
 		cs = call_summaries[name]
 		call_list.append( (cs.cumulative, cs) )
 	call_list.sort(reverse=True)
 
-	if _print_percentages:
-		_print_stats_header(("Call Name","Count","Cumulative%","Own Cumul%","Child Cumul%"))
-	else:
-		_print_stats_header(("Call Name","Count","Cumulative","Own Cumul","Child Cumul"))
+	output = []
+
+	col_names = ["Call Name", "Count", "Cumulative", "Own Cumul", "Child Cumul", "Per Call", "Own/Total"]
+
+	output.append(col_names)
+
 	for _,c in call_list:
 		cumulative = c.cumulative
 		own_cumulative = c.own_cumulative
 		children_cumulative = c.children_cumulative
+		per_call = cumulative / c.count
+		if cumulative == 0:
+			own_ratio = "inf"
+		else:
+			own_ratio = "%6.2f" % (own_cumulative / cumulative * 100)
+
+		col_data = [c.name, "%d" % c.count, "%12f" % cumulative, "%12f" % own_cumulative, "%12f" % children_cumulative, "%12f" % per_call, own_ratio]
 		if _print_percentages:
-			cumulative = cumulative * 100 / duration
-			own_cumulative = own_cumulative * 100 / duration
-			children_cumulative = children_cumulative * 100 / duration
-		_print_stats((c.name, c.count, cumulative, own_cumulative, children_cumulative))
+			col_data[2] += " (%6.2f)" % (cumulative * 100 / duration)
+			col_data[3] += " (%6.2f)" % (own_cumulative * 100 / duration)
+			col_data[4] += " (%6.2f)" % (children_cumulative * 100 / duration)
+
+		output.append(col_data)
+
+	# max widths
+	widths = [max([len(row[x]) for row in output]) for x in xrange(len(output[0]))]
+	# build row strings
+	fmt_out = [" ".join([x.ljust(widths[i]) for i, x in enumerate(row)]) for row in output]
+	# insert col separation row
+	fmt_out.insert(1, " ".join([''.ljust(widths[i], '=') for i in xrange(len(widths))]))
+	# write them!
+	map(lambda x: _maybe_write(_stats_output_file, "%s\n" % x), fmt_out)
+
 	_maybe_flush(_stats_output_file)
 
 	for gl in _states.keys():
@@ -262,7 +302,7 @@ def detach():
 	_trace_began_at = None
 	curr_state = None
 
-def profile(func, args=[], kwargs={}):
+def profile(func, *args, **kwargs):
 	"""
 	Takes a function and the arguments to pass to that function and runs it
 	with profiling enabled.  On completion of that function, the profiling 
