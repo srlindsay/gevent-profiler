@@ -302,7 +302,7 @@ def detach():
 	_trace_began_at = None
 	curr_state = None
 
-def profile(func, args=[], kwargs={}):
+def profile(func, *args, **kwargs):
 	"""
 	Takes a function and the arguments to pass to that function and runs it
 	with profiling enabled.  On completion of that function, the profiling 
