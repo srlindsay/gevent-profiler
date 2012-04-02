@@ -197,7 +197,7 @@ def _print_output(duration):
 	call_summaries = {}
 	for gl in _states.keys():
 		_sum_calls(_states[gl], call_summaries)
-	
+
 	call_list = []
 	for name in call_summaries:
 		cs = call_summaries[name]
@@ -206,19 +206,27 @@ def _print_output(duration):
 
 	output = []
 
-	if _print_percentages:
-		output.append(("Call Name","Count","Cumulative%","Own Cumul%","Child Cumul%"))
-	else:
-		output.append(("Call Name","Count","Cumulative","Own Cumul","Child Cumul"))
+	col_names = ["Call Name", "Count", "Cumulative", "Own Cumul", "Child Cumul", "Per Call", "Own/Total"]
+
+	output.append(col_names)
+
 	for _,c in call_list:
 		cumulative = c.cumulative
 		own_cumulative = c.own_cumulative
 		children_cumulative = c.children_cumulative
+		per_call = cumulative / c.count
+		if cumulative == 0:
+			own_ratio = "inf"
+		else:
+			own_ratio = "%6.2f" % (own_cumulative / cumulative * 100)
+
+		col_data = [c.name, "%d" % c.count, "%12f" % cumulative, "%12f" % own_cumulative, "%12f" % children_cumulative, "%12f" % per_call, own_ratio]
 		if _print_percentages:
-			cumulative = cumulative * 100 / duration
-			own_cumulative = own_cumulative * 100 / duration
-			children_cumulative = children_cumulative * 100 / duration
-		output.append((c.name, "%d" % c.count, "%12f" % cumulative, "%12f" % own_cumulative, "%12f" % children_cumulative))
+			col_data[2] += " (%6.2f)" % (cumulative * 100 / duration)
+			col_data[3] += " (%6.2f)" % (own_cumulative * 100 / duration)
+			col_data[4] += " (%6.2f)" % (children_cumulative * 100 / duration)
+
+		output.append(col_data)
 
 	# max widths
 	widths = [max([len(row[x]) for row in output]) for x in xrange(len(output[0]))]
