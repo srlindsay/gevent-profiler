@@ -204,10 +204,12 @@ def _print_output(duration):
 		call_list.append( (cs.cumulative, cs) )
 	call_list.sort(reverse=True)
 
+	output = []
+
 	if _print_percentages:
-		_print_stats_header(("Call Name","Count","Cumulative%","Own Cumul%","Child Cumul%"))
+		output.append(("Call Name","Count","Cumulative%","Own Cumul%","Child Cumul%"))
 	else:
-		_print_stats_header(("Call Name","Count","Cumulative","Own Cumul","Child Cumul"))
+		output.append(("Call Name","Count","Cumulative","Own Cumul","Child Cumul"))
 	for _,c in call_list:
 		cumulative = c.cumulative
 		own_cumulative = c.own_cumulative
@@ -216,7 +218,17 @@ def _print_output(duration):
 			cumulative = cumulative * 100 / duration
 			own_cumulative = own_cumulative * 100 / duration
 			children_cumulative = children_cumulative * 100 / duration
-		_print_stats((c.name, c.count, cumulative, own_cumulative, children_cumulative))
+		output.append((c.name, "%d" % c.count, "%12f" % cumulative, "%12f" % own_cumulative, "%12f" % children_cumulative))
+
+	# max widths
+	widths = [max([len(row[x]) for row in output]) for x in xrange(len(output[0]))]
+	# build row strings
+	fmt_out = [" ".join([x.ljust(widths[i]) for i, x in enumerate(row)]) for row in output]
+	# insert col separation row
+	fmt_out.insert(1, " ".join([''.ljust(widths[i], '=') for i in xrange(len(widths))]))
+	# write them!
+	map(lambda x: _maybe_write(_stats_output_file, "%s\n" % x), fmt_out)
+
 	_maybe_flush(_stats_output_file)
 
 	for gl in _states.keys():
