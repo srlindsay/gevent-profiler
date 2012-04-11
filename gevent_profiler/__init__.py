@@ -290,6 +290,10 @@ def detach():
 	global _attach_expiration
 	global _trace_began_at
 
+	# do we have a current trace?
+	if not _trace_began_at:
+		return
+
 	duration = time.time() - _trace_began_at
 	_attach_expiration = None
 	sys.settrace(None)
