@@ -275,7 +275,8 @@ def attach():
 	if _attach_expiration is not None:
 		return
 	now = time.time()
-	_attach_expiration = now + _attach_duration
+	if _attach_duration != 0:
+		_attach_expiration = now + _attach_duration
 	_trace_began_at = now
 	sys.settrace(_globaltrace)
 
@@ -356,6 +357,15 @@ def time_blocking(enabled=True):
 	"""
 	global _time_blocking
 	_time_blocking = enabled
+
+def set_attach_duration(attach_duration=60):
+	"""
+	Set the duration that attach/detach are allowed to operate for.
+	Will automatically detach after that time if any profile call is made.
+	By default this time period is 60 seconds. Set to 0 to disable.
+	"""
+	global _attach_duration
+	_attach_duration = attach_duration
 
 def _sighandler(signum, frame):
 	attach()
