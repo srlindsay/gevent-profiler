@@ -306,14 +306,17 @@ def profile(func, *args, **kwargs):
 	"""
 	Takes a function and the arguments to pass to that function and runs it
 	with profiling enabled.  On completion of that function, the profiling 
-	results are printed.
+	results are printed.  The return value of the profiled method is then
+	returned.
 	"""
 	sys.settrace(_globaltrace)
 	trace_began_at = time.time()
-	func(*args, **kwargs)
+	retval = func(*args, **kwargs)
 	sys.settrace(None)
 	_maybe_flush(_trace_output_file)
 	_print_output(time.time() - trace_began_at)
+
+	return retval
 
 def set_stats_output(f):
 	"""
