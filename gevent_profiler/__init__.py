@@ -21,7 +21,6 @@ _print_percentages = False
 _time_blocking = False
 
 _attach_expiration = None
-_attach_duration = 60
 
 _trace_began_at = None
 
@@ -265,20 +264,20 @@ def _print_output(duration):
 		_maybe_write(_summary_output_file, "\n")
 	_maybe_flush(_summary_output_file)
 
-def attach():
+def attach(duration=0):
 	"""
 	Start execution tracing
-	Tracing will automatically stop after a specified duration (default is 60s), configurable
-	via set_attach_duration
+	Tracing will stop automatically in 'duration' seconds.  If duration is zero, the 
+	trace won't stop until detach is called.
 	"""
 	global _attach_expiration
-	global _attach_duration
 	global _trace_began_at
 	if _attach_expiration is not None:
+		# already attached
 		return
 	now = time.time()
-	if _attach_duration != 0:
-		_attach_expiration = now + _attach_duration
+	if duration != 0:
+		_attach_expiration = now + duration
 	_trace_began_at = now
 	sys.settrace(_globaltrace)
 
@@ -372,9 +371,6 @@ def set_attach_duration(attach_duration=60):
 	global _attach_duration
 	_attach_duration = attach_duration
 
-def _sighandler(signum, frame):
-	attach()
-
 def attach_on_signal(signum=signal.SIGUSR1, duration=60):
 	"""
 	Sets up signal handlers so that, upon receiving the specified signal,
@@ -385,9 +381,8 @@ def attach_on_signal(signum=signal.SIGUSR1, duration=60):
 	to configure where the output goes.
 	By default, the signal is SIGUSR1.
 	"""
-	signal.signal(signum, _sighandler)
-	global _attach_duration
-	_attach_duration = duration
+	new_handler = lambda signum, frame: attach(duration=duration)
+	signal.signal(signum, new_handler)
 
 if __name__ == "__main__":
 	from optparse import OptionParser
