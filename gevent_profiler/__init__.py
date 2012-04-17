@@ -268,6 +268,8 @@ def _print_output(duration):
 def attach():
 	"""
 	Start execution tracing
+	Tracing will automatically stop after a specified duration (default is 60s), configurable
+	via set_attach_duration
 	"""
 	global _attach_expiration
 	global _attach_duration
