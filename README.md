@@ -92,3 +92,11 @@ Count time blocking on IO towards the execution totals for each function:
 ```python
 gevent_profiler.time_blocking(True)
 ```
+
+By default, there is a timeout of 60 seconds on the `attach`/`detach` methods. Change it or disable by
+passing 0 to:
+
+```python
+gevent_profiler.set_attach_duration(120)
+```
+
