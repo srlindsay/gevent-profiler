@@ -102,29 +102,28 @@ def _globaltrace(frame, event, arg):
 	return tracefunc
 
 def _getlocaltrace(state):
-	return lambda f, e, a: _localtrace(state, f, e, a)
-
-def _localtrace(state, frame, event, arg):
-	if _attach_expiration is not None and time.time() > _attach_expiration:
-		detach()
-		return
-
-	gl = gevent.greenlet.getcurrent()
-	code = frame.f_code
-	filename = code.co_filename
-	modulename = None
-	if filename:
-		modulename = _modname(filename)
-	if event == 'return':
-		if modulename is not None:
-			_print_trace("[%s] return: %s: %s: %s\n" % (gl, modulename, code.co_name, code.co_firstlineno))
-		if state.start_time is not None:
-			state.elapsed += time.time() - state.start_time
-		assert _curr_states[gl].parent is not None
-		_curr_states[gl] = _curr_states[gl].parent
-		return None
-	
-	return state.localtracefunc
+	def _localtrace(frame, event, arg):
+		if _attach_expiration is not None and time.time() > _attach_expiration:
+			detach()
+			return
+		
+		if event == 'return':
+			gl = gevent.greenlet.getcurrent()
+			code = frame.f_code
+			filename = code.co_filename
+			modulename = None
+			if filename:
+				modulename = _modname(filename)
+			if modulename is not None:
+				_print_trace("[%s] return: %s: %s: %s\n" % (gl, modulename, code.co_name, code.co_firstlineno))
+			if state.start_time is not None:
+				state.elapsed += time.time() - state.start_time
+			assert _curr_states[gl].parent is not None
+			_curr_states[gl] = _curr_states[gl].parent
+			return None
+		
+		return state.localtracefunc
+	return _localtrace
 
 def _stop_timing(gl):
 
